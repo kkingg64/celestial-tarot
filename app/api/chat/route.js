@@ -2,61 +2,59 @@ import { Groq } from 'groq-sdk';
 
 export async function POST(req) {
   try {
-    const { prompt } = await req.json();
+    const { prompt, language } = await req.json();
 
-    // 1. CHECK: Do we have an API Key?
-    // If running locally in HK without a VPN, this might fail, so we fallback to simulation.
-    // When running on Vercel (USA), this key will exist and work.
-    const apiKey = process.env.GROQ_API_KEY;
+    // 1. Try to use Real AI
+    if (process.env.GROQ_API_KEY) {
+      const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+      
+      const isChinese = language === 'zh';
+      const systemPrompt = isChinese 
+        ? `你是神秘的塔羅牌占卜師。用戶抽到了 "${prompt}"。請用繁體中文給出一段神秘、富有哲理但正面的解讀。請保持在三句話以內。`
+        : `You are a mystic tarot reader. The user drew "${prompt}". Give a cryptic but inspiring reading. Keep it under 3 sentences.`;
 
-    if (!apiKey) {
-      console.log("No API Key found. Using Simulation Mode.");
-      return simulateResponse();
+      const completion = await groq.chat.completions.create({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: isChinese ? '揭示我的命運' : 'Reveal my fate.' }
+        ],
+        model: 'llama3-8b-8192',
+      });
+
+      return new Response(JSON.stringify({ text: completion.choices[0]?.message?.content }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } else {
+      throw new Error("No API Key");
     }
 
-    // 2. REAL AI MODE (For Vercel/Deployment)
-    const groq = new Groq({ apiKey: apiKey });
-
-    const systemPrompt = `
-      You are an ancient mystical consciousness. 
-      The user has drawn the tarot card: "${prompt}".
-      Give a cryptic but inspiring reading based on this card.
-      Keep it under 3 sentences. Do not mention that you are an AI.
-      Tone: Ethereal, Cosmic, Deep.
-    `;
-
-    const completion = await groq.chat.completions.create({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: 'Reveal my fate.' }
-      ],
-      model: 'llama3-8b-8192',
-    });
-
-    const text = completion.choices[0]?.message?.content || "The stars are silent.";
-    
-    return new Response(JSON.stringify({ text }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
-
   } catch (error) {
-    console.error("AI Error, switching to simulation:", error);
-    // If the Real AI crashes (e.g. 403 Blocked in HK), we fall back to Simulation!
-    return simulateResponse();
+    console.log("Using Simulation Fallback due to error/block:", error.message);
+    return simulateResponse(req.language || 'zh');
   }
 }
 
-// Helper function for Simulation
-async function simulateResponse() {
+// Fallback logic
+async function simulateResponse(lang) {
+  // Simulate thinking time
   await new Promise(resolve => setTimeout(resolve, 1500));
-  const fortunes = [
-    "The shadows whisper of a new beginning. What you fear is actually a doorway.",
-    "The stars align to suggest caution. Silence will be your strongest weapon today.",
-    "A chaotic energy surrounds this card. Embrace the storm, for it clears the path.",
-    "You are holding on too tight. Let go, and the answer will float to the surface.",
+  
+  const zh = [
+    "命運之輪正在轉動，舊的結束是新的開始。",
+    "不要抗拒改變，擁抱未知的混亂，那裡有你的答案。",
+    "星辰顯示現在是行動的時刻，猶豫會錯失良機。"
   ];
-  const randomFortune = fortunes[Math.floor(Math.random() * fortunes.length)];
-  return new Response(JSON.stringify({ text: randomFortune + " (Simulated)" }), {
+  const en = [
+    "The wheel of fate turns; an ending is but a new beginning.",
+    "Do not resist change. Embrace the chaos, for your answer lies within.",
+    "The stars suggest immediate action. Hesitation is your enemy."
+  ];
+  
+  const text = lang === 'zh' 
+    ? zh[Math.floor(Math.random() * zh.length)] 
+    : en[Math.floor(Math.random() * en.length)];
+
+  return new Response(JSON.stringify({ text: text + " (Simulated)" }), {
     headers: { 'Content-Type': 'application/json' },
   });
 }
